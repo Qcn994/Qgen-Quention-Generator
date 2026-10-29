@@ -141,6 +141,8 @@ export interface SpikeStats {
   readonly needsReview: number;
   readonly failed: number;
   readonly duplicateHits: number;
+  /** 生成阶段产出过 answer_quote 的次数（分母）与其中定位成功的次数 */
+  readonly citationAttempts: number;
   readonly citationLocated: number;
   readonly blindSolveAttempts: number;
   readonly blindSolvePasses: number;
@@ -720,7 +722,8 @@ interface SlotOutcome {
   readonly record: QuestionRecord | null;
   readonly failure: FailureRecord | null;
   readonly duplicate: boolean;
-  readonly citationLocated: boolean;
+  /** 生成阶段产出 answer_quote 的次数与其中定位成功的次数（同一题位可能多次尝试） */
+  readonly citation: { attempts: number; located: number };
   readonly blind: { attempts: number; passes: number };
   readonly contrast: { attempts: number; passes: number };
   readonly distractor: { attempted: boolean; passed: boolean };
@@ -770,6 +773,11 @@ async function runSlot(
   let located: ReturnType<typeof locateQuote> = null;
   let generationLatencyMs = 0;
 
+  // 引用定位的分子分母按"模型产出的 quote 次数"计，而不是按题位或计划题位计：
+  // 同一题位可能重试两次，一次失败一次成功要如实反映在比率里（D3 旧口径会算出 >100%）。
+  let quoteAttempts = 0;
+  let quoteLocated = 0;
+
   for (let attempt = 0; attempt < 2 && prepared === null; attempt += 1) {
     const baseMessages = buildGenerateQuestionMessages({
       language,
@@ -807,7 +815,11 @@ async function runSlot(
         continue;
       }
 
+      quoteAttempts += 1;
       const quoteHit = locateQuote(slot.kp.chunks, validation.prepared.answerQuote);
+      if (quoteHit) {
+        quoteLocated += 1;
+      }
       if (!quoteHit) {
         feedback = `answer_quote 未能在原文中逐字找到：「${validation.prepared.answerQuote.slice(0, 80)}」。请只复制原文中一段连续、完整的句子（8–120 字）：不要拼接多处、不要带页码/页眉/脚注标记、不要用省略号。`;
         continue;
@@ -837,7 +849,7 @@ async function runSlot(
         costCny,
       },
       duplicate: false,
-      citationLocated: false,
+      citation: { attempts: quoteAttempts, located: quoteLocated },
       blind: { attempts: 0, passes: 0 },
       contrast: { attempts: 0, passes: 0 },
       distractor: { attempted: false, passed: false },
@@ -876,7 +888,7 @@ async function runSlot(
         costCny: Number((client.stats.spentCny - costBefore).toFixed(6)),
       },
       duplicate: false,
-      citationLocated: false,
+      citation: { attempts: quoteAttempts, located: quoteLocated },
       blind: { attempts: 0, passes: 0 },
       contrast: { attempts: 0, passes: 0 },
       distractor: { attempted: false, passed: false },
@@ -902,7 +914,7 @@ async function runSlot(
         costCny,
       },
       duplicate: true,
-      citationLocated: true,
+      citation: { attempts: quoteAttempts, located: quoteLocated },
       blind: { attempts: 0, passes: 0 },
       contrast: { attempts: 0, passes: 0 },
       distractor: { attempted: false, passed: false },
@@ -994,7 +1006,7 @@ async function runSlot(
         costCny: Number((client.stats.spentCny - costBefore).toFixed(6)),
       },
       duplicate: false,
-      citationLocated: true,
+      citation: { attempts: quoteAttempts, located: quoteLocated },
       blind: { attempts: 0, passes: 0 },
       contrast: { attempts: 0, passes: 0 },
       distractor: { attempted: false, passed: false },
@@ -1178,7 +1190,7 @@ async function runSlot(
     },
     failure: null,
     duplicate: false,
-    citationLocated: true,
+    citation: { attempts: quoteAttempts, located: quoteLocated },
     blind: { attempts: blindAttempts, passes: blindPasses },
     contrast: { attempts: contrastAttempts, passes: contrastPasses },
     distractor: { attempted: true, passed: distractorProblem === null },
@@ -1242,6 +1254,7 @@ export async function runSpike(
   const seen: bigint[] = [];
   const seenStemKeys = new Set<string>();
   let duplicateHits = 0;
+  let citationAttempts = 0;
   let citationLocated = 0;
   let blindAttempts = 0;
   let blindPasses = 0;
@@ -1309,9 +1322,8 @@ export async function runSpike(
       if (outcome.duplicate) {
         duplicateHits += 1;
       }
-      if (outcome.citationLocated) {
-        citationLocated += 1;
-      }
+      citationAttempts += outcome.citation.attempts;
+      citationLocated += outcome.citation.located;
       blindAttempts += outcome.blind.attempts;
       blindPasses += outcome.blind.passes;
       if (outcome.distractor.attempted) {
@@ -1364,6 +1376,7 @@ export async function runSpike(
       needsReview: questions.length - autoPassed.length,
       failed: failures.filter((failure) => failure.stage !== 'kp_extract').length,
       duplicateHits,
+      citationAttempts,
       citationLocated,
       blindSolveAttempts: blindAttempts,
       blindSolvePasses: blindPasses,

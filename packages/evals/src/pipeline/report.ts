@@ -73,8 +73,10 @@ function ratio(numerator: number, denominator: number): string {
 }
 
 function buildMetricRows(stats: SpikeStats): MetricRow[] {
+  // 分母是"模型产出 answer_quote 的次数"：题位失败、计划题位都不该进分母，
+  // 否则会算出 >100% 或把没生成出来的题算成引用失败。
   const citationRate =
-    stats.generated === 0 ? null : stats.citationLocated / Math.max(1, stats.plannedSlots);
+    stats.citationAttempts === 0 ? null : stats.citationLocated / stats.citationAttempts;
   const blindRate =
     stats.blindSolveAttempts === 0 ? null : stats.blindSolvePasses / stats.blindSolveAttempts;
   const contrastRate =
@@ -127,7 +129,7 @@ function buildMetricRows(stats: SpikeStats): MetricRow[] {
       value:
         citationRate === null
           ? '0/0'
-          : `${(citationRate * 100).toFixed(1)}%（${ratio(stats.citationLocated, stats.plannedSlots)} 题位定位成功）`,
+          : `${(citationRate * 100).toFixed(1)}%（${ratio(stats.citationLocated, stats.citationAttempts)} 次 quote 定位成功，分母=模型产出的 answer_quote 次数）`,
       verdict: autoVerdict(citationRate === null ? null : citationRate >= 0.95),
     },
     {
