@@ -248,24 +248,30 @@ pnpm eval -- --material "data/materials/<文件>" --items 20
 | Major 2 | `kp_extract` 块级失败必须走修复调用 | 接受 | `spike.ts:340-376`（zod 失败 → 带错误路径 + "最多 3 条、quote 只摘一句"的降载提示重试一次；仍失败才记 `kp_extract` 失败）；`spike.ts:156,1381`（`stats.kpBlockRepairCount`） | 1013 的 `kp_extract` 块级失败 **10 → 0**；4 份材料合计 0 次块级失败（`failures.json` 无 `kp_extract` 记录）。1013 schema 首过 81% → 92.7%（页眉剥离 + 修复回路共同作用） |
 | Major 3 | 蓝图加难度配额 + 换题型补位 | 接受 | `spike.ts:563-582`（`highQuota = round(total*0.15)`，按 KP importance 排序取前 N 个题位，`targetDifficulty = max(4, …)`）；`spike.ts:1261-1290`（生成失败 → 同 KP 先换另一种题型重试一次 → 仍失败再降级单选，逐次计 `reallocationRetries/Success`） | 生成题中难度 4–5 占比：**26.3% / 40% / 45% / 66.7%**（门槛 15%，D3 同期为 7%/7%/10%/47%）；补位尝试/成功：5/5、1/1、10/4、7/3 |
 | Major 4 | 语言检测改双条件 | 接受（但发现新误判样本，请 K3 裁决） | `packages/domain/src/text/language.ts:13-51`（`ratio ≥ 0.3` 或 `han ≥ 300 且 ratio ≥ 0.02` → zh）；`packages/domain/src/text/language-detect.test.ts:42-58`（两条必带用例：术语密集课件、英文论文夹中文注释） | PPT（汉字 359 / 2.85%）判 **zh** ✅；英文两栏论文（0.0%）判 en ✅。**但 1013 被判 zh——见下方争议项** |
-| Minor 1 | 成本台账 + 代码版本锚点 | 接受（git 初始化待用户确认） | `packages/evals/src/run-eval.ts:299-320`（非全缓存运行追加 `data/evals/cost-ledger.jsonl`）；`run-eval.ts:342-383`（`computeCodeDigest()`：`packages/*/src`、`apps/*/src` 下非测试 `.ts` 的 sha256 前 16 位）；`report.ts:279`（报告头打印代码指纹） | 本轮 4 次运行已写入 4 行台账，含 `costCny/llmCalls/cacheHits/generated` 等与 `codeDigest`。**工作区仍不是 git 仓库**：初始化需要用户点头，未擅自执行 |
+| Minor 1 | 成本台账 + 代码版本锚点 | 接受（git 初始化待用户确认） | `packages/evals/src/run-eval.ts:299-320`（非全缓存运行追加 `data/evals/cost-ledger.jsonl`）；`run-eval.ts:342-383`（`computeCodeDigest()`：`packages/*/src`、`apps/*/src` 下非测试 `.ts` 的 sha256 前 16 位）；`report.ts:279`（报告头打印代码指纹） | 本轮 6 次发生调用的运行各写入一行台账（`data/evals/cost-ledger.jsonl`），含 `costCny/llmCalls/cacheHits/generated` 等与 `codeDigest`。**git 已于 2026-10-29 初始化**（用户批准）：首个提交 `4285982`，`data/`、`.env.local`、`*.db` 由 `.gitignore` 排除，**未配置远端、未推送任何内容** |
 | Minor 2 | 跨页页眉页脚剥离 | 接受 | `packages/infrastructure/src/parsing/normalize-document.ts:81-155`（`stripRepeatedEdgeLines`：每页首尾各 2 行做候选，数字归一为 `#`，≥ max(3, 40% 有正文页) 次判为页眉页脚）；`normalize-document.ts:13`（`NORMALIZATION_VERSION` 升 `m0-v2`）；`packages/infrastructure/src/parsing/normalize-document.test.ts`（9 条：剥离/不误伤正文/短文档不动/长行不判/幂等） | 明末清初剥离 `·#·`（页码行）；1013 剥离期刊页眉 `# Children's Literature in Education (#) #:#–#`；ChatGPT 剥离 `LOW CODE`；Graph RAG 剥离 `#`。1013 首块不再是 53 字页眉 |
 | Minor 3 | `documents` 落库 + prompt 版本纪律 | 接受（登记） | 计划第十五节新增待办；`prompt_version` 随 vault 写入 `llm_cache` 键 | `generate-question.v1` 与 `answer-contrast.v1` 原样保留，新逻辑进 `.v2` 文件，未再原地改 v1 |
 | Nit | 题干模板统一为问句 | 接受（缓解） | `packages/infrastructure/src/llm/prompts/generate-question.v2.ts:53`（规则 6：疑问句或"以下（哪些）…"句式） | 4 份材料复跑后抽检题干均为问句；判断题仍按要求是完整陈述句 |
 | Q3 | schema 首过维持首过口径，新增 after-repair | 接受 | `spike.ts:1369-1379`（`schemaAfterRepairRate = (firstPass+repairedPass)/(firstPass+repairedPass+failures)`，修复调用不计首过）；`report.ts:110-123`（记分卡同时展示两个数） | 4 份材料：首过 83.2%–92.7%，修复后 98.5%–100% |
 
-### 复跑结果（2026-10-29，v2 prompt + m0-v2 归一化，4/6 完成）
+### 复跑结果（2026-10-29，v2 prompt + m0-v2 归一化，6/6 完成）
 
 | 材料 | 语言 | 生成 | 自动发布 | 待复核 | 失败 | schema 首过/修复后 | kp 块修复 | 补位(试/成) | 反证(通过/分母) | 生成题难度4–5 | 成本 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 明末清初 zh | zh | 20 | 10 | 10 | 0 | 92.0% / 99.2% | 1 | 5/5 | 9/9 | 45.0% | ¥0.711 |
-| 1013 en† | zh† | 18 | 5 | 13 | 2 | 92.7% / 98.5% | 2 | 10/4 | 12/12 | 66.7% | ¥0.633 |
+| 1013 en※ | zh※ | 18 | 5 | 13 | 2 | 92.7% / 98.5% | 2 | 10/4 | 12/12 | 66.7% | ¥0.633 |
 | 高鹏 PPT | zh | 20 | 9 | 11 | 0 | 81.3% / 100% | 0 | 1/1 | 8/8 | 40.0% | ¥0.247 |
 | ChatGPT 两栏 | en | 19 | 14 | 5 | 1 | 83.2% / 99.2% | 1 | 7/3 | 5/5 | 26.3% | ¥0.564 |
+| Graph RAG 两栏 | en | 17 | 8 | 9 | 3 | 80.6% / 100% | 0 | 9/4 | 7/7 | 41.2% | ¥0.588‡ |
+| 新闻 | en | 8 | 5 | 3 | 2 | 96.6% / 100% | 0 | 5/1 | 3/3 | 37.5% | ¥0.193 |
+| 合计 | — | 102 | 51 | 51 | 8 | 80.6%–96.6% / 98.5%–100% | 4 | 37/18 | 44/44 | 26.3%–66.7% | ¥2.936 |
 
-- **自动发布数下降是有意为之**（10/5/9/14，D3 同期 10/12/15/15）：难度 4–5 全部转人工，不是质量回退。反证 34/34 通过**不能**读成"反证问题已解决"——它已不决定发布，只是参考意见。
-- 失败共 3 次，全部是生成阶段 `answer_quote` 无法逐字定位（如"ChatGPT presents opportunities and challenges…"），已按 Major 3 补位，最终题位无空缺。
-- **Graph RAG 两栏**与**新闻**两份未完成：批量重跑在系统内存不足时被中止（第 5 份跑完解析与切块后停止，第 6 份未开始）。已产出的部分仅 `document.json/chunks.json/normalized.txt/review.md`，`stats.json` 缺失，**不纳入任何统计**。等用户许可后补跑。
+‡ **Graph RAG 的成本记在第一次运行**：被中止的批次其实跑完了这一份（`cost-ledger.jsonl` 里 2026-10-29T03:08Z 一行，¥0.588 / 112 次调用 / 生成 17），中止发生在它之后、新闻开始之前。本次复跑 124 次全缓存命中、`llmCalls = 0`，按"只有真正发生调用的运行才记账"的规则未追加新行——**台账与产物因此对得上**，这正是 Minor 1 想要的效果。仍需注意的机制性风险：台账只在一次运行完整结束时追加，若运行中途被强杀，该次已花的钱不会记账（本轮未出现）。
+
+- **自动发布数下降是有意为之**（51/102，D3 同期 71/92）：难度 4–5 全部转人工，不是质量回退。反证 44/44 通过**不能**读成"反证问题已解决"——它已不决定发布，只是参考意见。
+- 失败 8 次：7 次是生成阶段 `answer_quote` 无法逐字定位，1 次是 `duplicate`（题干规范化后与已有题完全相同，按设计不做补位）。
+- 补位 37 次成功 18 次（48.6%）：换题型补位确实救回一半失败题位，另一半仍记失败，没有用凑数题填坑。
+- ※ 1013 的语言判定见下方争议项，18 道题按 `zh` 生成，未剔除。
 
 ### 关于 16/32 的口径复核
 
@@ -291,8 +297,7 @@ K3 指出 16/32 是 attempt 级。我逐份复核了 D3 旧产物：6 份材料�
 ### 仍未完成（不声称已关闭）
 
 1. **K3 的复审**——本记录只是开发者的处置说明，未收到复审意见前 D3 不算通过，INDEX 维持「有 Major（4 项），修复后待复审」。
-2. 剩余 2 份材料（Graph RAG 两栏、新闻）的 v2 复跑。
+2. 台账的机制性缺口：只在运行完整结束时追加。运行中途被强杀则该次不记账（本轮没出现；要闭合得改成每次调用即时记账）。
 3. 人工复核 71 道已发布题（门槛 10/11）。
 4. M0-2 准入：分钟级 SIGINT 实测 + `documents` 表写入。
 5. 第二家厂商密钥到位后补跨厂商反证。
-6. git 初始化（需用户确认）。
