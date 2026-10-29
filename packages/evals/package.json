@@ -1,0 +1,21 @@
+{
+  "name": "@qgen/evals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "eval": "tsx src/run-eval.ts"
+  },
+  "dependencies": {
+    "@qgen/application": "workspace:*",
+    "@qgen/config": "workspace:*",
+    "@qgen/domain": "workspace:*",
+    "@qgen/infrastructure": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.0"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@qgen/infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./db/*": "./src/db/*.ts",
+    "./queue/*": "./src/queue/*.ts",
+    "./parsing/*": "./src/parsing/*.ts",
+    "./llm/*": "./src/llm/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@qgen/application": "workspace:*",
+    "@qgen/config": "workspace:*",
+    "@qgen/domain": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.4",
+    "fast-xml-parser": "^5.11.2",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "drizzle-kit": "^0.31.11"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@qgen/application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ports/*": "./src/ports/*.ts",
+    "./use-cases/*": "./src/use-cases/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@qgen/domain": "workspace:*"
+  }
+}

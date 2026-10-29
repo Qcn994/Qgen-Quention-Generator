@@ -1,0 +1,34 @@
+{
+  "name": "qgen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm db:migrate && concurrently -k -n web,worker -c cyan,magenta \"pnpm --filter @qgen/web dev\" \"pnpm --filter @qgen/worker dev\"",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs",
+    "eval": "tsx packages/evals/src/run-eval.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm depcruise",
+    "db:generate": "pnpm --filter @qgen/infrastructure db:generate",
+    "db:migrate": "pnpm --filter @qgen/infrastructure db:migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "concurrently": "^10.0.6",
+    "dependency-cruiser": "^18.7.0",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}

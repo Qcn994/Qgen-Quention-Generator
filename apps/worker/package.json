@@ -1,0 +1,21 @@
+{
+  "name": "@qgen/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@qgen/application": "workspace:*",
+    "@qgen/config": "workspace:*",
+    "@qgen/domain": "workspace:*",
+    "@qgen/infrastructure": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.0"
+  }
+}

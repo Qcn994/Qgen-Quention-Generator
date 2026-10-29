@@ -1,0 +1,27 @@
+{
+  "name": "@qgen/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@qgen/application": "workspace:*",
+    "@qgen/config": "workspace:*",
+    "@qgen/contracts": "workspace:*",
+    "@qgen/domain": "workspace:*",
+    "@qgen/infrastructure": "workspace:*",
+    "next": "^16.4.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^6.0.0"
+  }
+}
