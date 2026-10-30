@@ -144,6 +144,9 @@ export interface SpikeStats {
   /** 生成阶段产出过 answer_quote 的次数（分母）与其中定位成功的次数 */
   readonly citationAttempts: number;
   readonly citationLocated: number;
+  /** 最终题口径（K3 D3 复审 Q1）：已生成的题里带可定位引用的数量——这是发布门禁口径 */
+  readonly citationFinalLocated: number;
+  readonly citationFinalTotal: number;
   readonly blindSolveAttempts: number;
   readonly blindSolvePasses: number;
   readonly contrastAttempts: number;
@@ -175,6 +178,8 @@ export interface SpikeStats {
   readonly llmCalls: number;
   readonly avgLatencyMs: number;
   readonly p95LatencyMs: number;
+  /** 本次运行全缓存命中，成本/延迟沿用上一次非缓存运行的 stats（K3 D3 复审 Minor 1） */
+  readonly costFromCachedRun?: boolean;
   /** 需要人工复核才能算；自动段不给假数字 */
   readonly hardErrorRate: number | null;
 }
@@ -1358,6 +1363,10 @@ export async function runSpike(
     (record) => record.verification.answerContrast?.secondAnswerDefensible === false,
   ).length;
   const contrastAttempts = contrastQuestions.length;
+  // 引用门禁按最终题口径（K3 D3 复审 Q1）：每道生成的题都必须有可定位引用；
+  // 首次定位率是过程指标（分母=产出过的 quote 次数），两者分开统计。
+  const citationFinalTotal = questions.length;
+  const citationFinalLocated = questions.filter((record) => record.question.sourceRefs.length > 0).length;
   const softScores = questions.map((record) => record.decision.softScore);
   const latencies = questions.map((record) => record.latencyMs);
   const stats = client.stats;
@@ -1378,6 +1387,8 @@ export async function runSpike(
       duplicateHits,
       citationAttempts,
       citationLocated,
+      citationFinalLocated,
+      citationFinalTotal,
       blindSolveAttempts: blindAttempts,
       blindSolvePasses: blindPasses,
       contrastAttempts,

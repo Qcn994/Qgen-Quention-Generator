@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs",
     "eval": "tsx packages/evals/src/run-eval.ts",
+    "review-sheet": "tsx packages/evals/src/merge-review-sheet.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm depcruise",
     "db:generate": "pnpm --filter @qgen/infrastructure db:generate",
     "db:migrate": "pnpm --filter @qgen/infrastructure db:migrate"

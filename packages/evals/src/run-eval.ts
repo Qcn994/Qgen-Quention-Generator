@@ -28,7 +28,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { basename, extname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { targetKpCount } from '@qgen/domain';
+import { countHanInHead, targetKpCount, type MaterialLanguage } from '@qgen/domain';
 import { loadConfig, REPO_ROOT } from '@qgen/config';
 
 import { createSqliteDb } from '@qgen/infrastructure/db/client';
@@ -42,7 +42,7 @@ import {
   buildSpikeReport,
   escapeCell,
 } from './pipeline/report.ts';
-import { runSpike } from './pipeline/spike.ts';
+import { runSpike, type SpikeStats } from './pipeline/spike.ts';
 
 interface CliOptions {
   readonly material: string;
@@ -53,6 +53,8 @@ interface CliOptions {
   readonly budgetCny: number | null;
   readonly useCache: boolean;
   readonly parseOnly: boolean;
+  /** 人工覆盖语言判定（K3 D3 复审 Major 5）；null = 用启发式结果 */
+  readonly lang: MaterialLanguage | null;
 }
 
 function positiveInt(value: string | undefined, flag: string): number | null {
@@ -82,6 +84,7 @@ function parseCli(): CliOptions {
       'kp-limit': { type: 'string' },
       'max-chunks': { type: 'string' },
       budget: { type: 'string' },
+      lang: { type: 'string' },
       'no-cache': { type: 'boolean', default: false },
       'parse-only': { type: 'boolean', default: false },
     },
@@ -89,13 +92,18 @@ function parseCli(): CliOptions {
 
   if (!values.material) {
     throw new Error(
-      '用法: pnpm eval -- --material <path> [--out <dir>] [--items <n>] [--kp-limit <n>] [--max-chunks <n>] [--budget <cny>] [--no-cache] [--parse-only]',
+      '用法: pnpm eval -- --material <path> [--out <dir>] [--items <n>] [--kp-limit <n>] [--max-chunks <n>] [--budget <cny>] [--lang zh|en] [--no-cache] [--parse-only]',
     );
   }
 
   const budget = values.budget === undefined ? null : Number.parseFloat(values.budget);
   if (budget !== null && (!Number.isFinite(budget) || budget <= 0)) {
     throw new Error(`--budget 必须是正数，收到: ${values.budget}`);
+  }
+
+  const lang = values.lang ?? null;
+  if (lang !== null && lang !== 'zh' && lang !== 'en') {
+    throw new Error(`--lang 只能是 zh 或 en，收到: ${values.lang}`);
   }
 
   return {
@@ -107,11 +115,18 @@ function parseCli(): CliOptions {
     budgetCny: budget,
     useCache: !values['no-cache'],
     parseOnly: values['parse-only'],
+    lang: lang as MaterialLanguage | null,
   };
 }
 
 /** 语言检测的诊断信息：只用于报告，判定仍由 domain.detectLanguage 负责 */
-function languageSignals(text: string): { han: number; latin: number; hanRatio: number } {
+function languageSignals(text: string): {
+  han: number;
+  latin: number;
+  hanRatio: number;
+  /** 前 2000 字符内汉字数（K3 Major 5 的第三条件信号） */
+  hanHead: number;
+} {
   let han = 0;
   let latin = 0;
   for (const char of text) {
@@ -122,7 +137,12 @@ function languageSignals(text: string): { han: number; latin: number; hanRatio: 
     }
   }
   const total = han + latin;
-  return { han, latin, hanRatio: total === 0 ? 0 : Number((han / total).toFixed(3)) };
+  return {
+    han,
+    latin,
+    hanRatio: total === 0 ? 0 : Number((han / total).toFixed(3)),
+    hanHead: countHanInHead(text),
+  };
 }
 
 function buildChunkReviewTable(chunks: ReturnType<typeof chunkDocument>): string {
@@ -146,6 +166,9 @@ async function main(): Promise<void> {
 
   const extracted = await extractDocument(materialPath);
   const document = normalizeDocument(extracted.pages);
+  const detectedLanguage = document.language;
+  // --lang 优先：启发式永远会漏（英文论文贴中文封面等），用户一键纠偏是兜底
+  const language: MaterialLanguage = options.lang ?? detectedLanguage;
   const materialId = `eval-${document.contentHash.slice(0, 8)}`;
   const chunks = chunkDocument(document, materialId);
 
@@ -170,7 +193,9 @@ async function main(): Promise<void> {
     materialId,
     pageCount: document.pages.length,
     charCount: document.charCount,
-    language: document.language,
+    language,
+    detectedLanguage,
+    languageOverride: options.lang,
     languageSignals: languageSignals(document.normalizedText),
     normalizationVersion: document.normalizationVersion,
     contentHash: document.contentHash,
@@ -195,7 +220,7 @@ async function main(): Promise<void> {
       [
         `# 切块人工复核表：${basename(materialPath)}`,
         '',
-        `- 语言：${document.language}；页数：${document.pages.length}；字符数：${document.charCount}`,
+        `- 语言：${language}${options.lang ? `（--lang 覆盖，启发式判定 ${detectedLanguage}）` : ''}；页数：${document.pages.length}；字符数：${document.charCount}`,
         `- 切块：${chunks.length} 块；字数 min/avg/max = ${meta.chunkChars.min}/${meta.chunkChars.avg}/${meta.chunkChars.max}；覆盖率 ${(coverage * 100).toFixed(1)}%`,
         `- 归一化版本：${document.normalizationVersion}`,
         '',
@@ -210,7 +235,7 @@ async function main(): Promise<void> {
 
   console.log(`[eval] ${basename(materialPath)} → ${outDir}`);
   console.log(
-    `[eval] 页 ${document.pages.length} · 字符 ${document.charCount} · 语言 ${document.language}（汉字占比 ${(meta.languageSignals.hanRatio * 100).toFixed(1)}%）· 切块 ${chunks.length}（${meta.chunkChars.min}/${meta.chunkChars.avg}/${meta.chunkChars.max}）· 覆盖 ${(coverage * 100).toFixed(1)}%`,
+    `[eval] 页 ${document.pages.length} · 字符 ${document.charCount} · 语言 ${language}（汉字 ${meta.languageSignals.han} / 占比 ${(meta.languageSignals.hanRatio * 100).toFixed(2)}% / 前 2000 字 ${meta.languageSignals.hanHead}${options.lang ? `；--lang 覆盖，启发式 ${detectedLanguage}` : ''}）· 切块 ${chunks.length}（${meta.chunkChars.min}/${meta.chunkChars.avg}/${meta.chunkChars.max}）· 覆盖 ${(coverage * 100).toFixed(1)}%`,
   );
 
   if (document.strippedEdgeLines.length > 0) {
@@ -259,10 +284,13 @@ async function main(): Promise<void> {
         kpLimit: options.kpLimit,
         maxChunks: options.maxChunks,
       },
-      document.language,
+      language,
       targetKps,
     );
     const elapsedMs = Date.now() - startedAt;
+    // 全缓存重跑时 stats 里的成本/延迟会是 0（K3 D3 复审 Minor 1）：
+    // 沿用上一次非缓存运行的数值，并标记来源，避免 stats.json 与报告失真。
+    const stats = await carryOverCostWhenCached(outDir, result.stats);
 
     await Promise.all([
       writeFile(
@@ -277,27 +305,27 @@ async function main(): Promise<void> {
       ),
       writeFile(resolve(outDir, 'questions.json'), `${JSON.stringify(result.questions, null, 2)}\n`, 'utf8'),
       writeFile(resolve(outDir, 'failures.json'), `${JSON.stringify(result.failures, null, 2)}\n`, 'utf8'),
-      writeFile(resolve(outDir, 'stats.json'), `${JSON.stringify(result.stats, null, 2)}\n`, 'utf8'),
+      writeFile(resolve(outDir, 'stats.json'), `${JSON.stringify(stats, null, 2)}\n`, 'utf8'),
       writeFile(
         resolve(outDir, 'spike-report.md'),
         buildSpikeReport({
           materialPath,
           pageCount: document.pages.length,
           charCount: document.charCount,
-          language: document.language,
+          language,
+          detectedLanguage,
+          strippedEdgeLines: document.strippedEdgeLines,
           chunkCount: chunks.length,
           normalizationVersion: document.normalizationVersion,
           contentHash: document.contentHash,
           elapsedMs,
           codeDigest,
-          result,
+          result: { ...result, stats },
         }),
         'utf8',
       ),
       writeFile(resolve(outDir, 'question-details.md'), buildQuestionDetailMarkdown(result), 'utf8'),
     ]);
-
-    const { stats } = result;
 
     // 成本台账（K3 D3 Minor 1）：只有真正发生调用的运行才记账；
     // 追加写入，不覆盖——全缓存重跑不再抹掉上一次的真实成本。
@@ -319,6 +347,9 @@ async function main(): Promise<void> {
           failed: stats.failed,
           inputTokens: stats.inputTokens,
           outputTokens: stats.outputTokens,
+          // 复审 Minor 1：p95 目前在终端输出里易丢，随台账落盘
+          p95Ms: stats.p95LatencyMs,
+          avgLatencyMs: stats.avgLatencyMs,
         })}\n`,
         'utf8',
       );
@@ -338,6 +369,41 @@ async function main(): Promise<void> {
   } finally {
     sqlite.close();
   }
+}
+
+/**
+ * 全缓存重跑会把 stats.json 里的成本与 p95 覆盖成 0。
+ * 继承上一次非缓存运行的这几个字段，并标记 `costFromCachedRun`，
+ * 让 stats.json / spike-report.md 不再显示"0 元 0 秒"的假数据（K3 D3 复审 Minor 1）。
+ */
+async function carryOverCostWhenCached(outDir: string, stats: SpikeStats): Promise<SpikeStats> {
+  if (stats.llmCalls > 0) {
+    return stats;
+  }
+
+  let previous: Partial<SpikeStats>;
+  try {
+    previous = JSON.parse(await readFile(resolve(outDir, 'stats.json'), 'utf8')) as Partial<SpikeStats>;
+  } catch {
+    return stats;
+  }
+
+  const p95 = previous.p95LatencyMs;
+  if (typeof p95 !== 'number' || p95 <= 0) {
+    return stats;
+  }
+
+  return {
+    ...stats,
+    costCny: typeof previous.costCny === 'number' ? previous.costCny : stats.costCny,
+    costPerQuestionCny:
+      previous.costPerQuestionCny === undefined ? stats.costPerQuestionCny : previous.costPerQuestionCny,
+    inputTokens: typeof previous.inputTokens === 'number' ? previous.inputTokens : stats.inputTokens,
+    outputTokens: typeof previous.outputTokens === 'number' ? previous.outputTokens : stats.outputTokens,
+    avgLatencyMs: typeof previous.avgLatencyMs === 'number' ? previous.avgLatencyMs : stats.avgLatencyMs,
+    p95LatencyMs: p95,
+    costFromCachedRun: true,
+  };
 }
 
 /**

@@ -34,9 +34,11 @@ function statusLabel(result: SpikeResult, index: number): string {
 }
 
 export function buildQuestionReviewTable(result: SpikeResult): string {
+  // 「首尾行疑似误删」列来自 K3 D3 复审 Minor 2：页眉剥离是启发式，
+  // 人审顺手确认引用所在块的首尾行没有被误删，比再写一套版式识别便宜。
   const header =
-    '| # | 题型 | 难度 | 知识点 | 题干（截断） | 答案 | 答案依据（页码） | soft | 自动结论 | 人工可用 | 硬错误分类 | 备注 |';
-  const divider = '|---|---|---|---|---|---|---|---|---|---|---|---|';
+    '| # | 题型 | 难度 | 知识点 | 题干（截断） | 答案 | 答案依据（页码） | soft | 自动结论 | 人工可用 | 硬错误分类 | 首尾行疑似误删 | 备注 |';
+  const divider = '|---|---|---|---|---|---|---|---|---|---|---|---|---|';
 
   const rows = result.questions.map((record, index) => {
     const question = record.question;
@@ -52,6 +54,7 @@ export function buildQuestionReviewTable(result: SpikeResult): string {
       escapeCell(quoteCell),
       record.decision.softScore.toFixed(2),
       escapeCell(statusLabel(result, index)),
+      '',
       '',
       '',
       '',
@@ -73,7 +76,11 @@ function ratio(numerator: number, denominator: number): string {
 }
 
 function buildMetricRows(stats: SpikeStats): MetricRow[] {
-  // 分母是"模型产出 answer_quote 的次数"：题位失败、计划题位都不该进分母，
+  // 门禁口径 = 最终题（K3 D3 复审 Q1）：每道生成的题都必须有可定位引用。
+  const citationFinalTotal = stats.citationFinalTotal ?? 0;
+  const citationFinalRate =
+    citationFinalTotal === 0 ? null : (stats.citationFinalLocated ?? 0) / citationFinalTotal;
+  // 过程指标：分母是"模型产出 answer_quote 的次数"——题位失败、计划题位都不该进分母，
   // 否则会算出 >100% 或把没生成出来的题算成引用失败。
   const citationRate =
     stats.citationAttempts === 0 ? null : stats.citationLocated / stats.citationAttempts;
@@ -124,13 +131,23 @@ function buildMetricRows(stats: SpikeStats): MetricRow[] {
       ),
     },
     {
-      name: '引用精确匹配',
-      threshold: '≥95%',
+      name: '引用可定位（最终题，发布门禁口径）',
+      threshold: '100%',
+      value:
+        citationFinalRate === null
+          ? '0/0'
+          : `${(citationFinalRate * 100).toFixed(1)}%（${ratio(stats.citationFinalLocated ?? 0, citationFinalTotal)} 道生成的题都有可定位引用）`,
+      verdict: autoVerdict(citationFinalRate === null ? null : citationFinalRate >= 1),
+    },
+    {
+      name: '引用首次定位率（过程指标）',
+      threshold: '软目标 ≥90%',
       value:
         citationRate === null
           ? '0/0'
-          : `${(citationRate * 100).toFixed(1)}%（${ratio(stats.citationLocated, stats.citationAttempts)} 次 quote 定位成功，分母=模型产出的 answer_quote 次数）`,
-      verdict: autoVerdict(citationRate === null ? null : citationRate >= 0.95),
+          : `${(citationRate * 100).toFixed(1)}%（${ratio(stats.citationLocated, stats.citationAttempts)} 次 quote 定位成功，分母=模型产出的 answer_quote 次数；重试后需重新过 citation_supports）`,
+      verdict:
+        citationRate === null ? '无样本' : citationRate >= 0.9 ? '✅ 过程目标达标' : '⚠ 未达软目标（不 block 发布）',
     },
     {
       name: '盲解一致率（难度 ≤3）',
@@ -193,7 +210,9 @@ function buildMetricRows(stats: SpikeStats): MetricRow[] {
     {
       name: '单份材料成本',
       threshold: '≤¥6',
-      value: `¥${stats.costCny.toFixed(2)}（输入 ${stats.inputTokens} tok / 输出 ${stats.outputTokens} tok / 缓存命中 ${stats.cacheHits}）`,
+      value: `¥${stats.costCny.toFixed(2)}（输入 ${stats.inputTokens} tok / 输出 ${stats.outputTokens} tok / 缓存命中 ${stats.cacheHits}${
+        stats.costFromCachedRun ? '；本次全缓存，成本与延迟沿用上一次非缓存运行' : ''
+      }）`,
       verdict: autoVerdict(stats.costCny <= 6),
     },
     {
@@ -258,6 +277,9 @@ export interface SpikeReportInput {
   readonly pageCount: number;
   readonly charCount: number;
   readonly language: string;
+  /** 启发式判定结果；与 language 不同说明被 --lang 覆盖（K3 D3 复审 Major 5） */
+  readonly detectedLanguage?: string;
+  readonly strippedEdgeLines?: readonly string[];
   readonly chunkCount: number;
   readonly normalizationVersion: string;
   readonly contentHash: string;
@@ -276,7 +298,11 @@ export function buildSpikeReport(input: SpikeReportInput): string {
     '',
     `- 材料：\`${input.materialPath}\``,
     `- 生成时间：${timestamp}`,
-    `- 语言：${input.language}；页数：${input.pageCount}；字符数：${input.charCount}；切块：${input.chunkCount}`,
+    `- 语言：${input.language}${
+      input.detectedLanguage && input.detectedLanguage !== input.language
+        ? `（人工覆盖，启发式判定 ${input.detectedLanguage}）`
+        : ''
+    }；页数：${input.pageCount}；字符数：${input.charCount}；切块：${input.chunkCount}`,
     `- 归一化版本：${input.normalizationVersion}；contentHash：\`${input.contentHash.slice(0, 16)}\``,
     ...(input.codeDigest ? [`- 代码指纹：\`${input.codeDigest}\``] : []),
     `- 总耗时：${(input.elapsedMs / 1000).toFixed(1)}s（含 LLM 调用）`,
@@ -291,6 +317,12 @@ export function buildSpikeReport(input: SpikeReportInput): string {
     '',
     '> 判断标准：答案是否唯一且由原文支持；错误项是否对应一个真实误区；解析是否逐项说明；难度是否与标注相符。',
     '> 人工列留空，复核时填写；硬错误分类用：`wrong_key / ambiguous / multiple_defensible / unsupported_explanation / bad_distractor / trivial / formatting`。',
+    ...(input.strippedEdgeLines && input.strippedEdgeLines.length > 0
+      ? [
+          '',
+          `> 已剥离的跨页重复首尾行（启发式，请留意是否误删正文）：${input.strippedEdgeLines.map((line) => `\`${line}\``).join('、')}`,
+        ]
+      : []),
     '',
     buildQuestionReviewTable(input.result),
     '',
