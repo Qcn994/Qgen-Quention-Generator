@@ -211,14 +211,21 @@ function buildMetricRows(stats: SpikeStats): MetricRow[] {
       name: '单份材料成本',
       threshold: '≤¥6',
       value: `¥${stats.costCny.toFixed(2)}（输入 ${stats.inputTokens} tok / 输出 ${stats.outputTokens} tok / 缓存命中 ${stats.cacheHits}${
-        stats.costFromCachedRun ? '；本次全缓存，成本与延迟沿用上一次非缓存运行' : ''
+        stats.costFromCachedRun
+          ? stats.p95LatencyMs > 0
+            ? '；本次全缓存，成本与延迟沿用上一次非缓存运行'
+            : '；本次全缓存，成本取自 cost-ledger.jsonl 最近一次真实运行'
+          : ''
       }）`,
       verdict: autoVerdict(stats.costCny <= 6),
     },
     {
       name: '单题流水线 p95 延迟',
       threshold: '100 页整份 <10 分钟',
-      value: `平均 ${(stats.avgLatencyMs / 1000).toFixed(1)}s / p95 ${(stats.p95LatencyMs / 1000).toFixed(1)}s（逐题，非整份）`,
+      value:
+        stats.p95LatencyMs <= 0
+          ? '本次全缓存，延迟不可用（旧台账未记录 p95）'
+          : `平均 ${(stats.avgLatencyMs / 1000).toFixed(1)}s / p95 ${(stats.p95LatencyMs / 1000).toFixed(1)}s（逐题，非整份）`,
       verdict: '参考',
     },
   ];

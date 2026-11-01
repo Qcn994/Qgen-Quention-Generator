@@ -385,25 +385,74 @@ async function carryOverCostWhenCached(outDir: string, stats: SpikeStats): Promi
   try {
     previous = JSON.parse(await readFile(resolve(outDir, 'stats.json'), 'utf8')) as Partial<SpikeStats>;
   } catch {
-    return stats;
+    previous = {};
   }
 
-  const p95 = previous.p95LatencyMs;
-  if (typeof p95 !== 'number' || p95 <= 0) {
-    return stats;
+  // 只信任"真的调过模型"的上一次运行；上一次若也是全缓存（p95 只有几毫秒），
+  // 继承它只会把 0 成本一路传下去。
+  const previousP95 = typeof previous.p95LatencyMs === 'number' ? previous.p95LatencyMs : 0;
+  const previousIsRealRun =
+    (previous.llmCalls ?? 0) > 0 && previousP95 > 0 && previous.costFromCachedRun !== true;
+
+  if (previousIsRealRun) {
+    return {
+      ...stats,
+      costCny: typeof previous.costCny === 'number' ? previous.costCny : stats.costCny,
+      costPerQuestionCny:
+        previous.costPerQuestionCny === undefined ? stats.costPerQuestionCny : previous.costPerQuestionCny,
+      inputTokens: typeof previous.inputTokens === 'number' ? previous.inputTokens : stats.inputTokens,
+      outputTokens: typeof previous.outputTokens === 'number' ? previous.outputTokens : stats.outputTokens,
+      avgLatencyMs: typeof previous.avgLatencyMs === 'number' ? previous.avgLatencyMs : stats.avgLatencyMs,
+      p95LatencyMs: previousP95,
+      costFromCachedRun: true,
+    };
   }
 
-  return {
-    ...stats,
-    costCny: typeof previous.costCny === 'number' ? previous.costCny : stats.costCny,
-    costPerQuestionCny:
-      previous.costPerQuestionCny === undefined ? stats.costPerQuestionCny : previous.costPerQuestionCny,
-    inputTokens: typeof previous.inputTokens === 'number' ? previous.inputTokens : stats.inputTokens,
-    outputTokens: typeof previous.outputTokens === 'number' ? previous.outputTokens : stats.outputTokens,
-    avgLatencyMs: typeof previous.avgLatencyMs === 'number' ? previous.avgLatencyMs : stats.avgLatencyMs,
-    p95LatencyMs: p95,
-    costFromCachedRun: true,
-  };
+  // 回退：从成本台账里找这份材料最近一次真实运行的费用（p95 旧台账没有记录，保持 0 并标注）
+  const ledgerCost = await findLedgerCost(outDir, stats.requestedItems);
+  if (ledgerCost === null) {
+    return stats;
+  }
+  return { ...stats, costCny: ledgerCost, costFromCachedRun: true };
+}
+
+/**
+ * 在 cost-ledger.jsonl 里按 outDir 找最近一次非缓存运行的成本。
+ * 必须同时匹配 --items：同一份材料跑过 10 题和 20 题的话，费用不能混用。
+ */
+async function findLedgerCost(outDir: string, requestedItems: number): Promise<number | null> {
+  let raw: string;
+  try {
+    raw = await readFile(resolve(outDir, '..', 'cost-ledger.jsonl'), 'utf8');
+  } catch {
+    return null;
+  }
+  const target = basename(outDir);
+  let exact: number | null = null;
+  let fallback: number | null = null;
+  for (const line of raw.split('\n')) {
+    if (line.trim() === '') {
+      continue;
+    }
+    try {
+      const row = JSON.parse(line) as {
+        outDir?: string;
+        items?: number | null;
+        llmCalls?: number;
+        costCny?: number;
+      };
+      if (row.outDir !== target || (row.llmCalls ?? 0) <= 0 || typeof row.costCny !== 'number') {
+        continue;
+      }
+      fallback = row.costCny;
+      if (row.items === requestedItems) {
+        exact = row.costCny;
+      }
+    } catch {
+      // 跳过坏行
+    }
+  }
+  return exact ?? fallback;
 }
 
 /**
